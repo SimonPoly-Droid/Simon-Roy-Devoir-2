@@ -24,15 +24,26 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def upload_directory(src_dir: str, bucket_name: str, profile_name: Optional[str] = "default", dry_run: bool = False) -> int:
+def upload_directory(src_dir: str, bucket_name: str, profile_name: Optional[str] = None, dry_run: bool = False) -> int:
     """Upload all files under src_dir to the specified S3 bucket.
 
     Returns the number of files successfully uploaded.
     """
     try:
-        session = boto3.Session(profile_name=profile_name)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        local_credentials = os.path.join(script_dir, ".aws", "credentials")
+
+        if profile_name:
+            session = boto3.Session(profile_name=profile_name)
+            logger.info("Initialized S3 client using profile '%s'.", profile_name)
+        else:
+            if not os.environ.get("AWS_SHARED_CREDENTIALS_FILE") and os.path.isfile(local_credentials):
+                os.environ["AWS_SHARED_CREDENTIALS_FILE"] = local_credentials
+                logger.info("Using local AWS credentials file: %s", local_credentials)
+            session = boto3.Session()
+            logger.info("Initialized S3 client using AWS credential chain.")
+
         s3 = session.client("s3")
-        logger.info("Initialized S3 client using profile '%s'.", profile_name)
     except (NoCredentialsError, PartialCredentialsError) as e:
         logger.error("AWS credentials not found or incomplete: %s", e)
         raise
@@ -78,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backup a local directory to an AWS S3 bucket")
     parser.add_argument("--src", required=True, help="Path to local directory")
     parser.add_argument("--bucket", required=True, help="S3 bucket name")
-    parser.add_argument("--profile", default="default", help="AWS profile name (default: 'default')")
+    parser.add_argument("--profile", default=None, help="AWS profile name (optional)")
     parser.add_argument("--dry-run", action="store_true", help="Do not perform uploads; just show what would be done")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
